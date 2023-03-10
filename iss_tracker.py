@@ -307,9 +307,10 @@ def get_current_location() -> str:
         for i in iss_data['stateVector']:
             epoch = i['EPOCH']
             time_epoch = time.mktime(time.strptime(epoch[:-5], '%Y-%jT%H:%M:%S'))
-            difference = time_now - time_epoch
+            difference = abs(time_now - time_epoch)
             if (difference < min_time):
                 closest_epoch = i
+                min_time = difference
 
         x = float(closest_epoch['X']['#text'])
         y = float(closest_epoch['Y']['#text'])
@@ -334,7 +335,7 @@ def get_current_location() -> str:
         
         geocoder = Nominatim(user_agent='iss_tracker')
         try:
-            geoloc = geocoder.reverse((lat, lon), zoom=25, language='en')
+            geoloc = geocoder.reverse((lat, lon), zoom=5, language='en')
             if (geoloc == None):
                 return ('Current Epoch: {} \nISS Location: the Ocean \n'.format(closest_epoch['EPOCH']))
             else:

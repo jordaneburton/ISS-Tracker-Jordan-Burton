@@ -1,0 +1,11 @@
+---
+version: "3"
+
+services:
+    flask-app:
+        build:
+            context: ./
+            dockerfile: ./Dockerfile
+        image: jordaneburton/iss_tracker:2.0
+        volumes:
+            - ./config.yaml:/config.yaml
