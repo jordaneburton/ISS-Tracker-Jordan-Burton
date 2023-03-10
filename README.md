@@ -19,9 +19,14 @@ In our program, we have eight routes you can use to query information (replace "
 | `/epochs?"limit=int&offset=int"` | GET | A modified list of Epochs using query parameters |
 | `/epochs/<epoch>` | GET | State vectors for a specific Epoch in the dataset |
 | `/epochs/<epoch>/speed` | GET | Instantaneous speed for a specific Epoch |
+| `/epochs/<epoch>/location` | GET | Geolocation for a specified Epoch |
 | `/help` | GET | Help text briefly describing each route |
 | `/delete-data` | DELETE | Deletes all data from local dictionary object |
 | `/post-data` | POST | Updates local dictionary object with ISS data from the web |
+| `/comment` | GET | A list of comments from the dataset |
+| `/header` | GET | The header for the dataset |
+| `/metadata` | GET | Metadata from the dataset |
+| `/now` | GET | Geolocation of the Epoch closest to the current time |
 ## Using the Existing Docker Image
 In your command terminal, you will need to pull my docker image using the following command:
 ```

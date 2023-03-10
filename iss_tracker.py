@@ -2,9 +2,14 @@ from flask import Flask, request
 import requests
 import xmltodict
 import math
+import time
+import geopy
+from geopy.geocoders import Nominatim
 
 app = Flask(__name__)
 global iss_data
+global iss_header
+global iss_metadata
 
 def request_nasa_data():
     """
@@ -20,6 +25,24 @@ def request_nasa_data():
     iss_data = iss_response['ndm']['oem']['body']['segment']['data']
     iss_header = iss_response['ndm']['oem']['header']
     iss_metadata = iss_response['ndm']['oem']['body']['segment']['metadata']
+
+def epoch_to_datetime(epoch: str) -> list:
+    """
+    Parses through the epoch string and returns a list of only the numbers
+    List format: [year, day, hour, minute, second]
+    """
+    res_time = []
+    for i in epoch:
+        if i.isnumeric():
+            res_time.append(float(i))
+    year = res_time[0]*1000 + res_time[1]*100 + res_time[2]*10 + res_time[3]
+    day = res_time[4]*100 + res_time[5]*10 + res_time[6]
+    hour = res_time[7]*10 + res_time[8]
+    minute = res_time[9]*10 + res_time[10]
+    second = res_time[11]*10 + res_time[12] + res_time[13]/10 + res_time[14]/100 + res_time[15]/1000
+    
+    res_time = [year, day, hour, minute, second]
+    return res_time
 
 request_nasa_data()
 
@@ -154,9 +177,23 @@ Routes:
 
   /epochs/<epoch>/speed
                     Returns instantaneous speed for specified Epoch
-  
+
+  /epochs/<epoch>/location
+                    Returns the geolocation of the specified Epoch
+
   /delete-data      Deletes all data from local dataset
-  /post-data        Reloads local dataset with data from the web\n
+
+  /post-data        Reloads local dataset with data from the web
+  
+  /comment          Returns a list of all the comments from the data
+  
+  /header           Returns the header of the dataset
+  
+  /metadata         Returns the metadata from the dataset
+  
+  /now              Returns the geolocation of the Epoch closest to 
+                    the current time
+
 """
 
 @app.route('/delete-data', methods=['DELETE'])
@@ -166,6 +203,8 @@ def delete_data() -> str:
     """
     global iss_data
     iss_data.clear()
+    iss_header.clear()
+    iss_metadata.clear()
     return 'Data Cleared \n'
 
 @app.route('/post-data', methods=['POST'])
@@ -175,6 +214,134 @@ def update_data() -> str:
     """
     request_nasa_data()
     return 'Data Reloaded \n'
+
+@app.route('/comment', methods=['GET'])
+def get_comment() -> list:
+    """
+    Returns list of comments from ISS data
+    """
+    if iss_data == {}:
+        return 'Error: Data cleared. Fetch new data with /post-data \n'
+    else:
+        iss_comment = []
+        for i in iss_data['COMMENT']:
+            if (i == None):
+                iss_comment.append("")
+            else:
+                iss_comment.append(i)
+        return iss_comment
+
+@app.route('/header', methods=['GET'])
+def get_header() -> dict:
+    """
+    Returns the header of the ISS data
+    """
+    if iss_header == {}:
+        return 'Error: Data cleared. Fetch new data with /post-data \n'
+    else:
+        return iss_header
+
+@app.route('/metadata', methods=['GET'])
+def get_metadata() -> dict:
+    """
+    Returns the metadata from the ISS data
+    """
+    if iss_metadata == {}:
+        return 'Error: Data cleared. Fetch new data with /post-data \n'
+    else:
+        return iss_metadata
+
+@app.route('/epochs/<int:epoch>/location', methods=['GET'])
+def get_location(epoch):
+    """
+    Calculates the latitude, longitude, altitude, and geoposition for a 
+    specified epoch
+    """
+    if iss_data == {}:
+        return 'Error: Data cleared. Fetch new data with /post-data \n'
+    else:
+        x = float(iss_data['stateVector'][epoch]['X']['#text'])
+        y = float(iss_data['stateVector'][epoch]['Y']['#text'])
+        z = float(iss_data['stateVector'][epoch]['Z']['#text'])
+        
+        # extracting time from epoch format
+        epoch_time = epoch_to_datetime(iss_data['stateVector'][epoch]['EPOCH'])
+        hrs = epoch_time[2]
+        mins = epoch_time[3]        
+        MEAN_EARTH_RADIUS = 6371.0 #km
+
+        lat = math.degrees(math.atan2(z, math.sqrt(x**2 + y**2)))                
+        lon = math.degrees(math.atan2(y, x)) - ((hrs-12)+(mins/60))*(360/24) + 32
+        alt = math.sqrt(x**2 + y**2 + z**2) - MEAN_EARTH_RADIUS
+        while (abs(lon) > 180):
+            if (lon > 180):
+                lon -= 360
+            elif (lon < -180):
+                lon += 360
+            else:
+                break
+        
+        geocoder = Nominatim(user_agent='iss_tracker')
+        try:
+            geoloc = geocoder.reverse((lat, lon), zoom=25, language='en')
+            if (geoloc == None):
+                return ('Epoch Entry: {} \nISS Location: the Ocean \n'.format(iss_data['stateVector'][epoch]['EPOCH']))
+            else:
+                return ('Epoch Entry: {} \nISS Location: {} \n'.format(iss_data['stateVector'][epoch]['EPOCH'], str(geoloc)))
+        except Error as e:
+            return ('Geopy returned an error - {}'.format(e))
+
+
+@app.route('/now', methods=['GET'])
+def get_current_location() -> str:
+    """
+    Calculates the latitude, longitude, altitude, and geoposition for the epoch
+    closest to the current time
+    """
+    if iss_data == {}:
+        return 'Error: Data cleared. Fetch new data with /post-data \n'
+    else:
+        closest_epoch = {}
+        min_time = 9999
+        time_now = time.time()
+        for i in iss_data['stateVector']:
+            epoch = i['EPOCH']
+            time_epoch = time.mktime(time.strptime(epoch[:-5], '%Y-%jT%H:%M:%S'))
+            difference = time_now - time_epoch
+            if (difference < min_time):
+                closest_epoch = i
+
+        x = float(closest_epoch['X']['#text'])
+        y = float(closest_epoch['Y']['#text'])
+        z = float(closest_epoch['Z']['#text'])
+        
+        epoch_time = epoch_to_datetime(closest_epoch['EPOCH'])
+        hrs = epoch_time[2]
+        mins = epoch_time[3]
+        MEAN_EARTH_RADIUS = 6371.0 #km
+
+        lat = math.degrees(math.atan2(z, math.sqrt(x**2 + y**2)))
+        lon = math.degrees(math.atan2(y, x)) - ((hrs-12)+(mins/60))*(360/24) + 32
+        alt = math.sqrt(x**2 + y**2 + z**2) - MEAN_EARTH_RADIUS
+        
+        while (abs(lon) > 180):
+            if (lon > 180):
+                lon -= 360
+            elif (lon < -180):
+                lon += 360
+            else:
+                break
+        
+        geocoder = Nominatim(user_agent='iss_tracker')
+        try:
+            geoloc = geocoder.reverse((lat, lon), zoom=25, language='en')
+            if (geoloc == None):
+                return ('Current Epoch: {} \nISS Location: the Ocean \n'.format(closest_epoch['EPOCH']))
+            else:
+                return ('Current Epoch: {} \nISS Location: {}\n'.format(closest_epoch['EPOCH'], str(geoloc)))
+        except Error as e:
+            return ('Geopy returned an error - {}'.format(e))
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
